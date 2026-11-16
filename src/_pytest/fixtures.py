@@ -1195,6 +1195,7 @@ class FixtureDef(Generic[FixtureValue]):
         # Can change if the fixture is executed with different parameters.
         self.cached_result: _FixtureCachedResult[FixtureValue] | None = None
         self._finalizers: Final[list[Callable[[], object]]] = []
+        self._cached_dep_defs: tuple[FixtureDef[Any], ...] = ()
 
         # only used to emit a deprecationwarning, can be removed in pytest9
         self._autouse = _autouse
@@ -1231,6 +1232,7 @@ class FixtureDef(Generic[FixtureValue]):
         # which will keep instances alive.
         self.cached_result = None
         self._finalizers.clear()
+        self._cached_dep_defs = ()
         if len(exceptions) == 1:
             raise exceptions[0]
         elif len(exceptions) > 1:
@@ -1254,6 +1256,17 @@ class FixtureDef(Generic[FixtureValue]):
             # needed when this fixture is not parametrized but depends on a parametrized
             # fixture.
             requested_fixtures_that_should_finalize_us.append(fixturedef)
+
+        # A fixture can resolve a different override of a dependency for a
+        # later test, even when its own scope and parameter are unchanged.
+        # The special "request" fixture is created anew for each call.
+        current_dep_defs = tuple(
+            fixturedef
+            for fixturedef in requested_fixtures_that_should_finalize_us
+            if fixturedef.argname != "request"
+        )
+        if self.cached_result is not None and current_dep_defs != self._cached_dep_defs:
+            self.finish(request)
 
         # Check for (and return) cached value/exception.
         if self.cached_result is not None:
@@ -1288,6 +1301,7 @@ class FixtureDef(Generic[FixtureValue]):
         # Register the pytest_fixture_post_finalizer as the first finalizer,
         # which is executed last.
         assert not self._finalizers
+        self._cached_dep_defs = current_dep_defs
         self.addfinalizer(
             lambda: request.node.ihook.pytest_fixture_post_finalizer(
                 fixturedef=self, request=request

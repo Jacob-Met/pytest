@@ -668,6 +668,59 @@ class TestFillFixtures:
         result = pytester.runpytest()
         result.stdout.fnmatch_lines(["*2 passed*"])
 
+    def test_session_fixture_reuses_correct_overridden_dependency(
+        self, pytester: Pytester
+    ) -> None:
+        pytester.makeconftest(
+            """
+            import pytest
+
+            @pytest.fixture(scope="session")
+            def value(request):
+                return request.param
+
+            @pytest.fixture(scope="session")
+            def wrapped(value):
+                print(f"START:{value}")
+                yield value
+                print(f"STOP:{value}")
+            """
+        )
+        pytester.makepyfile(
+            test_bar="""
+            import pytest
+
+            @pytest.fixture(scope="session", params=["bar1"])
+            def value(request):
+                return request.param
+
+            def test_bar(wrapped):
+                assert wrapped == "bar1"
+            """,
+            test_foo="""
+            import pytest
+
+            @pytest.fixture(scope="session", params=["foo1", "foo2"])
+            def value(request):
+                return request.param
+
+            def test_foo(wrapped, value):
+                assert wrapped == value
+            """,
+        )
+        result = pytester.runpytest("-q", "-s")
+        result.assert_outcomes(passed=3)
+        result.stdout.fnmatch_lines(
+            [
+                "*START:bar1*",
+                "*STOP:bar1*",
+                "*START:foo1*",
+                "*STOP:foo1*",
+                "*START:foo2*",
+                "*STOP:foo2*",
+            ]
+        )
+
     @pytest.mark.xfail(reason="not handled currently")
     def test_override_parametrized_fixture_via_transitive_fixture(
         self, pytester: Pytester

@@ -6324,3 +6324,117 @@ def test_classmethod_above_fixture_warning_inherited(pytester: Pytester) -> None
     )
     result.stdout.fnmatch_lines(["*fixture 'fixt' not found*"])
     result.assert_outcomes(errors=1)
+
+
+def test_plugin_can_declare_fixture_dependencies(pytester: Pytester) -> None:
+    """An execution hook's backend must participate in parametrization and teardown."""
+    pytester.makeconftest(
+        """
+        import pytest
+        current_backend = None
+
+        @pytest.fixture(scope="session", params=["asyncio", "trio"])
+        def backend(request):
+            return request.param
+
+        def pytest_fixture_dependencies(fixturedef, config):
+            if fixturedef.argname == "resource":
+                return ("backend",)
+
+        @pytest.hookimpl(wrapper=True)
+        def pytest_fixture_setup(fixturedef, request):
+            global current_backend
+            if fixturedef.argname == "resource":
+                current_backend = request.getfixturevalue("backend")
+            return (yield)
+
+        @pytest.fixture(scope="session")
+        def resource():
+            return current_backend
+        """
+    )
+    pytester.makepyfile(
+        """
+        def test_matching_backend(backend, resource):
+            assert resource == backend
+
+        def test_implicit_backend(resource):
+            assert resource in ("asyncio", "trio")
+        """
+    )
+    result = pytester.runpytest("-q")
+    result.assert_outcomes(passed=4)
+
+
+def test_plugin_declared_dependencies_follow_fixture_visibility(
+    pytester: Pytester,
+) -> None:
+    pytester.makepyfile(
+        **{
+            "a/conftest.py": """
+                import pytest
+                @pytest.fixture
+                def local_only():
+                    return 1
+                def pytest_fixture_dependencies(fixturedef, config):
+                    if fixturedef.argname == 'resource':
+                        return ('local_only',)
+            """,
+            "a/test_a.py": """
+                def test_local(local_only):
+                    assert local_only == 1
+            """,
+            "b/conftest.py": """
+                import pytest
+                @pytest.fixture
+                def resource():
+                    return 'b'
+            """,
+            "b/test_b.py": """
+                def test_other(resource):
+                    assert resource == 'b'
+            """,
+        }
+    )
+    result = pytester.runpytest("-q")
+    result.assert_outcomes(passed=2)
+
+
+def test_multiple_plugins_contribute_fixture_dependencies(pytester: Pytester) -> None:
+    pytester.makepyfile(
+        external_dep="""
+            def pytest_fixture_dependencies(fixturedef, config):
+                if fixturedef.argname == 'resource':
+                    return ('left',)
+        """
+    )
+    pytester.makeconftest(
+        """
+        import pytest
+        pytest_plugins = ('external_dep',)
+
+        @pytest.fixture(params=['a', 'b'])
+        def left(request):
+            return request.param
+
+        @pytest.fixture(params=[0, 1])
+        def right(request):
+            return request.param
+
+        @pytest.fixture
+        def resource():
+            return 'ready'
+
+        def pytest_fixture_dependencies(fixturedef, config):
+            if fixturedef.argname == 'resource':
+                return ('right',)
+        """
+    )
+    pytester.makepyfile(
+        """
+        def test_implicit_only(resource):
+            assert resource == 'ready'
+        """
+    )
+    result = pytester.runpytest("-q")
+    result.assert_outcomes(passed=4)

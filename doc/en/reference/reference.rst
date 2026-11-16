@@ -786,6 +786,8 @@ All runtest related hooks receive a :py:class:`pytest.Item <pytest.Item>` object
 .. autofunction:: pytest_runtest_teardown
 .. hook:: pytest_runtest_makereport
 .. autofunction:: pytest_runtest_makereport
+.. hook:: pytest_fixture_dependencies
+.. autofunction:: pytest_fixture_dependencies
 .. hook:: pytest_fixture_setup
 .. autofunction:: pytest_fixture_setup
 .. hook:: pytest_fixture_post_finalizer

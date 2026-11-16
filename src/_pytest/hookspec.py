@@ -5,6 +5,7 @@ and by builtin plugins."""
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
 from pathlib import Path
@@ -832,6 +833,23 @@ def pytest_report_from_serializable(
 # -------------------------------------------------------------------------
 # Fixture related hooks
 # -------------------------------------------------------------------------
+
+
+def pytest_fixture_dependencies(
+    fixturedef: FixtureDef[Any], config: Config
+) -> Iterable[str] | None:
+    """Declare dependencies a plugin needs to execute this fixture.
+
+    Called when a fixture is registered, before collection decides
+    parametrization. Declared fixtures are loaded and cached as dependencies
+    but are not passed as arguments to the fixture function. Each implementation
+    may contribute names, and should only do so for fixtures it handles.
+    Conftest implementations are scoped to fixtures in their collection tree.
+    Each named fixture must be visible within the requesting fixture scope.
+
+    :param fixturedef: Fixture being registered.
+    :param config: The pytest configuration.
+    """
 
 
 @hookspec(firstresult=True)

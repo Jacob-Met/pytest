@@ -1,0 +1,1 @@
+Plugins can declare extra setup-time fixture dependencies with ``pytest_fixture_dependencies``. Parametrized backends now participate in collection and fixture lifetime without changing user fixture signatures.

@@ -439,7 +439,7 @@ def traverse_fixture_closure(
         fixturedef = fixturedefs[index]
 
         current_indices[argname] = index - 1
-        for dep in fixturedef.argnames:
+        for dep in fixturedef._dependency_names:
             yield from process_argname(dep)
         current_indices[argname] = index
 
@@ -1191,6 +1191,8 @@ class FixtureDef(Generic[FixtureValue]):
         self.ids: Final = ids
         # The names requested by the fixtures.
         self.argnames: Final = getfuncargnames(func, name=argname)
+        # Plugins may declare dependencies not passed to the function.
+        self._dependency_names: tuple[str, ...] = self.argnames
         # If the fixture was executed, the current value of the fixture.
         # Can change if the fixture is executed with different parameters.
         self.cached_result: _FixtureCachedResult[FixtureValue] | None = None
@@ -1246,7 +1248,7 @@ class FixtureDef(Generic[FixtureValue]):
         # (which will likely include this fixture) setting `self.cached_result = None`.
         # See #4871
         requested_fixtures_that_should_finalize_us = []
-        for argname in self.argnames:
+        for argname in self._dependency_names:
             fixturedef = request._get_active_fixturedef(argname)
             # Saves requested fixtures in a list so we later can add our finalizer
             # to them, ensuring that if a requested fixture gets torn down we get torn
@@ -2055,7 +2057,7 @@ class FixtureManager:
                 # TODO: Handle the case where the super-fixture is transitively
                 # requested (see #7737 and the xfail'd test
                 # test_override_parametrized_fixture_via_transitive_fixture).
-                if argname not in fixturedef.argnames:
+                if argname not in fixturedef._dependency_names:
                     break
 
                 # Try next super fixture, if any.
@@ -2112,6 +2114,18 @@ class FixtureManager:
             _ispytest=True,
             _autouse=autouse,
             node=node,
+        )
+
+        # Build the complete graph before parametrization and cache lookup.
+        ihook = (
+            fixture_def.node.ihook if fixture_def.node is not None else self.config.hook
+        )
+        declared = ihook.pytest_fixture_dependencies(
+            fixturedef=fixture_def, config=self.config
+        )
+        extra_names = (dep for names in declared for dep in names)
+        fixture_def._dependency_names = deduplicate_names(
+            fixture_def.argnames, extra_names
         )
 
         if node is not NOTSET:
